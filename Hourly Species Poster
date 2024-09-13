@@ -1,0 +1,80 @@
+import requests
+from bs4 import BeautifulSoup
+from io import BytesIO
+from PIL import Image
+import time
+import schedule
+import tweepy
+import os
+
+consumer_key = '[YOUR CONSUMER KEY]'
+consumer_secret = '[YOUR CONUSMER KEY SECRET]'
+access_token = '[YOUR ACCESS TOKEN]'
+access_token_secret = '[YOUR ACCESS TOKEN SECRET]'
+bearer_token = '[YOUR BEARER TOKEN]'
+
+auth = tweepy.OAuthHandler(consumer_key, consumer_secret)
+auth.set_access_token(access_token, access_token_secret)
+api_v1 = tweepy.API(auth)
+
+client = tweepy.Client(bearer_token=bearer_token, consumer_key=consumer_key, consumer_secret=consumer_secret, access_token=access_token, access_token_secret=access_token_secret)
+
+
+def tweet_random_species():
+    while True:
+        url = "http://tolweb.org/tree?random=true"
+        response = requests.get(url)
+        soup = BeautifulSoup(response.content, 'html.parser')
+
+        subtitle_tag = soup.find('h2', class_='subtitle')
+        subtitle = subtitle_tag.get_text() if subtitle_tag else None
+
+        if not subtitle:
+            continue
+
+        title_tag = soup.find('title')
+        title = title_tag.get_text() if title_tag else "No Title"
+
+        photo = soup.find('div', {'name': 'Figures'}) or soup.find('div', id='tillus')
+
+        if photo:
+            print(subtitle)
+            print(f"Genus/Species: {title}")
+
+            img_tags = photo.find_all('img')
+            media_ids = []
+
+            for i, img_tag in enumerate(img_tags):
+                img_url = img_tag.get('src')
+
+                if img_url == "/tree/img/magnify.gif":
+                    continue
+
+                if img_url:
+                    if img_url.startswith('/'):
+                        img_url = "http://tolweb.org" + img_url
+
+                    img_response = requests.get(img_url)
+                    img_data = BytesIO(img_response.content)
+
+                    img = Image.open(img_data)
+
+                    img_path = f"species_image_{i}.jpg"
+                    img.save(img_path)
+
+                    media = api_v1.media_upload(img_path)
+                    media_ids.append(media.media_id_string)
+
+                    os.remove(img_path)
+
+            if media_ids:
+                tweet_text = f"Genus/Species: {title}\nSubtitle: {subtitle}"
+                client.create_tweet(text=tweet_text, media_ids=media_ids)
+
+            break
+
+schedule.every(3599).seconds.do(tweet_random_species)
+
+while True:
+    schedule.run_pending()
+    time.sleep(1)
